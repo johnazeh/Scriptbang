@@ -1,0 +1,21 @@
+
+DECLARE @BatchSize INT = 10000;
+
+-- Correct format for DATETIMEOFFSET without 'T'
+DECLARE @DeleteBefore DATETIMEOFFSET = '2024-06-30 00:00:00.0000000 +00:00';
+
+-- Loop to delete records in batches
+WHILE (1 = 1)
+BEGIN
+    -- Delete in batches of @BatchSize
+    DELETE TOP (@BatchSize)
+    FROM [dbo].[ReportingVisionEvents]
+    WHERE [Timestamp] < @DeleteBefore;
+
+    -- Exit the loop when no more rows are deleted
+    IF @@ROWCOUNT = 0
+        BREAK;
+
+    -- Optional: small delay between batches to reduce system load
+    -- WAITFOR DELAY '00:00:05'; -- 5 seconds pause between batches
+END

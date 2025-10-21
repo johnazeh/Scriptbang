@@ -1,0 +1,34 @@
+
+
+-- Create a global temp table to store aggregated space info
+IF OBJECT_ID('tempdb..##DbFileSpaceDetails') IS NOT NULL
+    DROP TABLE ##DbFileSpaceDetails;
+
+CREATE TABLE ##DbFileSpaceDetails (
+    DatabaseName SYSNAME,
+    TotalSpaceGB DECIMAL(18,2),
+    SpaceUsedMB DECIMAL(18,2),
+    SpaceEmptyMB DECIMAL(18,2),
+    SpaceAllocatedMB DECIMAL(18,2)
+);
+
+-- Loop through each DB and insert aggregated space info (one record per database)
+EXEC sp_MSforeachdb 
+N'
+IF ''?'' NOT IN (''master'', ''tempdb'', ''model'', ''msdb'')
+BEGIN
+    USE [?];
+    INSERT INTO ##DbFileSpaceDetails (DatabaseName, TotalSpaceGB, SpaceUsedMB, SpaceEmptyMB, SpaceAllocatedMB)
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        CAST(SUM(size) / 131072.0 AS DECIMAL(18,2)) AS TotalSpaceGB,  -- Convert pages to GB (8KB pages: size/131072)
+        SUM(FILEPROPERTY(name, ''SpaceUsed'')) / 128.0 AS SpaceUsedMB,   -- Used space in MB (size/128)
+        SUM(size) / 128.0 - SUM(FILEPROPERTY(name, ''SpaceUsed'')) / 128.0 AS SpaceEmptyMB,
+        SUM(size) / 128.0 AS SpaceAllocatedMB
+    FROM sys.database_files;
+END
+';
+
+-- Return the aggregated results for all databases
+SELECT * FROM ##DbFileSpaceDetails
+ORDER BY DatabaseName;

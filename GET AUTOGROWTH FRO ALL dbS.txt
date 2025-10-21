@@ -1,0 +1,38 @@
+IF OBJECT_ID('tempdb..##DbAutoGrowthSettings') IS NOT NULL
+    DROP TABLE ##DbAutoGrowthSettings;
+
+CREATE TABLE ##DbAutoGrowthSettings (
+    DatabaseName SYSNAME,
+    SizeMB DECIMAL(18,2),
+    MaxSizeMB DECIMAL(18,2),
+    GrowthSetting VARCHAR(50),
+    IsPercentGrowth BIT
+);
+
+EXEC sp_MSforeachdb
+N'
+IF ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'')
+BEGIN
+    USE [?];
+
+    INSERT INTO ##DbAutoGrowthSettings (DatabaseName, SizeMB, MaxSizeMB, GrowthSetting, IsPercentGrowth)
+    SELECT
+        DB_NAME() AS DatabaseName,
+        size / 128.0 AS SizeMB,
+        CASE 
+            WHEN max_size = -1 THEN -1   -- Unlimited
+            ELSE max_size / 128.0 
+        END AS MaxSizeMB,
+        CASE 
+            WHEN is_percent_growth = 1 THEN CAST(growth AS VARCHAR) + ''%''
+            ELSE CAST(growth / 128.0 AS VARCHAR) + '' MB''
+        END AS GrowthSetting,
+        is_percent_growth
+    FROM sys.database_files
+    WHERE type_desc = ''ROWS'';  -- Exclude LOG files
+END
+';
+
+-- View results
+SELECT * FROM ##DbAutoGrowthSettings
+ORDER BY DatabaseName

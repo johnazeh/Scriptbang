@@ -1,0 +1,21 @@
+$resourceGroupName = "tru-prd-wus-azsqldb-rg"
+$serverName = "tru-prd-wus-azsqldb-sql"
+$poolName = "tru-prd-wus-azsqldb-elp"
+$userName = "prdazsqldbdbadmin"
+$password = "NNcVFK:5vidB7XUtxgw{h7og"
+
+# get list of databases in elastic pool
+$databasesInPool = Get-AzSqlElasticPoolDatabase -ResourceGroupName $resourceGroupName -ServerName $serverName -ElasticPoolName $poolName
+$databaseStorageMetrics = @()
+
+# for each database in the elastic pool, get space allocated in MB and space allocated unused in MB
+foreach ($database in $databasesInPool) {
+    $sqlCommand = "SELECT DB_NAME() as DatabaseName, SUM(size/128.0) AS DatabaseDataSpaceAllocatedInMB, SUM(size/128.0 - CAST(FILEPROPERTY(name, 'SpaceUsed') AS int)/128.0) AS DatabaseDataSpaceAllocatedUnusedInMB FROM sys.database_files GROUP BY type_desc HAVING type_desc = 'ROWS'"
+    $serverFqdn = "tcp:" + $serverName + ".database.windows.net,1433"
+    $databaseStorageMetrics = $databaseStorageMetrics + 
+        (Invoke-Sqlcmd -ServerInstance $serverFqdn -Database $database.DatabaseName -Username $userName -Password $password -Query $sqlCommand)
+}
+
+# display databases in descending order of space allocated unused
+Write-Output "`n" "ElasticPoolName: $poolName"
+Write-Output $databaseStorageMetrics | Sort -Property DatabaseDataSpaceAllocatedUnusedInMB -Descending | Format-Table
