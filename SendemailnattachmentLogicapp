@@ -1,0 +1,90 @@
+$LogicAppUrl = "https://prod-26.canadacentral.logic.azure.com:443/workflows/d85a9d7adf0f41bea589e05472bb65a7/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=zSqGDG8uw28teKHVOyB9oM6Eyb9oO5eXhyBxXtiEsNg"
+
+# ==========================================
+# Export DailyServerReport to CSV and send via Logic App (Outlook)
+# ==========================================
+
+# Logic App endpoint (your working URL)
+$LogicAppUrl = "https://prod-26.canadacentral.logic.azure.com:443/workflows/d85a9d7adf0f41bea589e05472bb65a7/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=zSqGDG8uw28teKHVOyB9oM6Eyb9oO5eXhyBxXtiEsNg"
+
+# Connection details
+$Server = "Jemazo\Prod"
+$Database = "DBA_Inventory"
+$OutputFile = "C:\SQLJobs\DailyServerReport.csv"
+
+# Columns to include
+$Columns = @(
+    'ReportID','ReportDate','TotalDevJobs','TotalDevTables','TotalDevDB',
+    'TotalDevDbSize','TotalDevServers','ChangeDevJobs','ChangeDevTables',
+    'ChangeDevDB','ChangeDevDbSize','ChangeDevServers'
+)
+
+try {
+    Write-Host "📊 Exporting DailyServerReport from $Server..."
+
+    # Fetch full data (for CSV)
+    $FullData = Invoke-Sqlcmd -ServerInstance $Server -Database $Database -Query "
+        SELECT * 
+        FROM dbo.DailyServerReport
+        ORDER BY ReportDate DESC
+    " 
+
+    # Export selected columns to CSV (overwrite)
+    $FullData | Select-Object $Columns |
+        Export-Csv -Path $OutputFile -NoTypeInformation -Encoding UTF8 -Force
+
+    # Preview data for HTML
+    $PreviewData = $FullData | Select-Object $Columns | Select-Object -First 10
+    $HtmlTable = $PreviewData | ConvertTo-Html -Fragment | Out-String
+
+    # HTML email styling
+    $StyledBody = @"
+<html>
+<head>
+<style>
+table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: Arial;
+    font-size: 12px;
+}
+th, td {
+    border: 1px solid #ddd;
+    padding: 6px;
+    text-align: left;
+}
+th {
+    background-color: #0078D7;
+    color: white;
+}
+</style>
+</head>
+<body>
+<h3>Monthly SQL Server Report for $Server</h3>
+<p>Attached is the full CSV report. Here's a quick preview:</p>
+$HtmlTable
+<p>-- SQL Automation</p>
+</body>
+</html>
+"@
+
+    # Convert CSV to Base64
+    $FileBytes = [System.IO.File]::ReadAllBytes($OutputFile)
+    $Base64File = [System.Convert]::ToBase64String($FileBytes)
+
+    # Prepare JSON payload for Logic App
+    $Payload = @{
+        subject = "Monthly SQL Server Report - $Server"
+        htmlbody = $StyledBody
+        attachmentName = "DailyServerReport.csv"
+        attachmentContent = $Base64File
+    } | ConvertTo-Json -Depth 5
+
+    Write-Host "🚀 Sending report to Logic App..."
+    Invoke-RestMethod -Uri $LogicAppUrl -Method POST -Body $Payload -ContentType "application/json"
+
+    Write-Host "✅ CSV exported and email sent successfully via Logic App."
+
+} catch {
+    Write-Host "❌ Error exporting or sending report: $($_.Exception.Message)"
+}
