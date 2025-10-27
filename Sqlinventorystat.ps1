@@ -1,10 +1,7 @@
 # ==========================================
-# Export DailyServerReport to CSV and Email
+# Export DailyServerReport to CSV and Email via Internal SMTP Relay
 # Overwrites existing CSV each run
 # ==========================================
-
-# Load SQL Server module if not already loaded
-#Import-Module SqlServer -ErrorAction SilentlyContinue
 
 # Connection details
 $Server = "DEV-SQL3"
@@ -14,8 +11,8 @@ $OutputFile = "C:\SQLJobs\DailyServerReport.csv"  # Always overwritten
 # Columns to include
 $Columns = @(
     'ReportID','ReportDate','TotalDevJobs','TotalDevTables','TotalDevDB',
-    'TotalDevDbSize','TotalDevServers','ChangeDevJobs','ChangeDevTables',
-    'ChangeDevDB','ChangeDevDbSize','ChangeDevServers'
+    'TotalDevDbSize','TotalDevServers','TotalDevDiskSize','ChangeDevJobs','ChangeDevTables',
+    'ChangeDevDB','ChangeDevDbSize','ChangeDevServers','ChangeDevDisksize'
 )
 
 try {
@@ -69,21 +66,29 @@ $HtmlTable
 </html>
 "@
 
-    # Email parameters
+    # Email parameters (Internal Relay with PSCredential)
     $ConfigPath = "C:\SQLJobs\ReportConfig.json"
-$Config = Get-Content $ConfigPath | ConvertFrom-Json
+    $Config = Get-Content $ConfigPath | ConvertFrom-Json
 
-    $From = $Config.From
+    $From = "no-reply@trupanion.com"
     $To = $Config.To
     $Subject = "Monthly SQL Server Report - $Server"
-    $SMTP = $Config.SMTP
+    $SMTP = "mail.trupanion.com"  # <- Internal SMTP relay
+    $Port = 25                     # <- Standard internal relay port
 
-    # Send email with HTML preview + CSV
+    # Create anonymous PSCredential object
+    $anonUsername = "anonymous"
+    $anonPassword = ConvertTo-SecureString -String "anonymous" -AsPlainText -Force
+    $anonCredentials = New-Object System.Management.Automation.PSCredential($anonUsername, $anonPassword)
+
+    # Send email with HTML preview + CSV via internal relay
     Send-MailMessage -From $From -To $To -Subject $Subject `
         -Body $StyledBody -BodyAsHtml `
-        -SmtpServer $SMTP -Attachments $OutputFile
+        -SmtpServer $SMTP -Port $Port `
+        -Credential $anonCredentials `
+        -Attachments $OutputFile
 
-    Write-Host "CSV exported and email sent successfully."
+    Write-Host "CSV exported and email sent successfully via internal relay (anonymous credentials)."
 
 } catch {
     Write-Host "? Error exporting or sending report: $_"
